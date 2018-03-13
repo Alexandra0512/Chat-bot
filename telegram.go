@@ -7,23 +7,16 @@ import (
 	"os"
 
 	drive "google.golang.org/api/drive/v3"
-	sheets "google.golang.org/api/sheets/v4"
 	"gopkg.in/telegram-bot-api.v4"
 )
 
-// Config структура файла с настройками Telegram
-type Config struct {
-	TelegramBotToken string
-}
-
 var (
-	bot           *tgbotapi.BotAPI
-	srvDrive      *drive.Service
-	ChatID        int64
-	srv           *sheets.Service
-	spreadsheetId string
-	isReadAuth    bool
-	updates       tgbotapi.UpdatesChannel
+	bot        *tgbotapi.BotAPI
+	srvDrive   *drive.Service
+	ChatID     int64
+	UzverID    int
+	isReadAuth bool
+	updates    tgbotapi.UpdatesChannel
 )
 
 // SendMessageToTelegram вывод сообщения в телеграмме от бота
@@ -77,7 +70,7 @@ func main() {
 	for update := range updates {
 		// Создав структуру - можно её отправить обратно боту
 
-		fmt.Printf("%s\n", update.Message.Text)
+		fmt.Printf("%s\n", update.Message.From.ID)
 
 		if update.Message == nil {
 			continue
@@ -89,16 +82,23 @@ func main() {
 			AuthCode <- code
 		}
 
+		// обработка команд
+		// P.S. команда начинается с "/"
 		switch update.Message.Command() {
-		case "auth":
+		case "auth": // авторизация пользователя
 			ChatID = update.Message.Chat.ID
+			UzverID = update.Message.From.ID
 			go initGoogle()
 			isReadAuth = true
 		case "start":
 		case "file":
-
 		}
 
-		//SendMessageToTelegram(reply)
+		// обработка сообщений
+
+		// парсинг ключевых слов
+
+		// вызов определенных функций
+
 	}
 }

@@ -1,3 +1,25 @@
 {
-    
+    "properties":{
+        "title":"Бюджет"
+    },
+    "sheets":[
+        {
+            "properties":{
+                "title":"Доходы",
+                "index":0   
+            }
+        },
+        {
+            "properties":{
+                "title":"Расходы",
+                "index":1   
+            }
+        },
+        {
+             "properties":{
+                "title":"Статистика",
+                "index":2
+            }
+        }   
+    ]
 }

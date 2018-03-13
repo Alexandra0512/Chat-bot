@@ -18,7 +18,11 @@ import (
 	sheets "google.golang.org/api/sheets/v4"
 )
 
-var AuthCode chan string = make(chan string)
+var (
+	AuthCode      chan string = make(chan string)
+	spreadsheetId string
+	srv           *sheets.Service
+)
 
 // initGoogle Инициализация связи с Google Drive и Google Sheets
 func initGoogle() {
@@ -31,7 +35,7 @@ func initGoogle() {
 
 	// If modifying these scopes, delete your previously saved credentials
 	// at ~/.credentials/sheets.googleapis.com-go-quickstart.json
-	config, err := google.ConfigFromJSON(b, drive.DriveMetadataReadonlyScope)
+	config, err := google.ConfigFromJSON(b, drive.DriveMetadataReadonlyScope, "https://www.googleapis.com/auth/spreadsheets")
 	if err != nil {
 		log.Fatalf("Невозмоожно получить данный из файла настроек google: %v", err)
 	}
@@ -39,11 +43,13 @@ func initGoogle() {
 	// создание клиента
 	client := getClient(ctx, config)
 
+	// получение доступа к Google Drive
 	srvDrive, err = drive.New(client)
 	if err != nil {
 		log.Fatalf("Unable to retrieve drive Client %v", err)
 	}
 
+	// получение доступа к Google Sheets
 	srv, err = sheets.New(client)
 	if err != nil {
 		log.Fatalf("Unable to retrieve Sheets Client %v", err)
@@ -54,22 +60,35 @@ func initGoogle() {
 		log.Fatalf("Не удаётся получить файлы с Google Drive: %v", err)
 	}
 
+	table := CreateTable()
+	resp, err := srv.Spreadsheets.Create(table).Context(ctx).Do()
+	if err != nil {
+		log.Fatal(err)
+	}
+	spreadsheetId = resp.SpreadsheetId
+	SendMessageToTelegram("Ссылка на таблицу:\n" + spreadsheetId)
+
 	if len(r.Files) > 0 {
 		for _, i := range r.Files {
-			if i.Name == "Учёт_бюджета" {
+			if i.Name == "Бюджет" {
 				spreadsheetId = i.Id
-				return
+				break
 			}
 		}
 	} else {
 
-		rowData := &sheets.Spreadsheet{}
-		resp, err := srv.Spreadsheets.Create(rowData).Context(ctx).Do()
-		if err != nil {
-			log.Fatal(err)
-		}
-		spreadsheetId = resp.SpreadsheetId
 	}
+}
+
+func CreateTable() *sheets.Spreadsheet {
+	file, _ := os.Open("table.json")
+	defer file.Close()
+
+	jsonDataTable, _ := ioutil.ReadAll(file)
+	var table *sheets.Spreadsheet
+	json.Unmarshal(jsonDataTable, &table)
+
+	return table
 }
 
 // getClient использование Context и Config для получения Token
@@ -117,7 +136,7 @@ func tokenCacheFile() (string, error) {
 	tokenCacheDir := filepath.Join(usr.HomeDir, ".credentials")
 	os.MkdirAll(tokenCacheDir, 0700)
 	return filepath.Join(tokenCacheDir,
-		url.QueryEscape("quickstart"+string(ChatID)+".json")), err
+		url.QueryEscape("quickstart"+string(UzverID)+".json")), err
 }
 
 // tokenFromFile извлечение Token из пути к файлу.
