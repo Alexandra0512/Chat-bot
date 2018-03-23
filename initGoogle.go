@@ -28,9 +28,11 @@ var (
 func initGoogle() {
 	ctx := context.Background()
 
+	// чтение файлов настроек от гугл
 	b, err := ioutil.ReadFile("config_google.json")
 	if err != nil {
 		log.Fatalf("Невозможно прочитать файл настроек google: %v", err)
+		SendMessageToTelegram("Невозможно прочитать файл настроек google, обратитесь администратору")
 	}
 
 	// If modifying these scopes, delete your previously saved credentials
@@ -55,32 +57,63 @@ func initGoogle() {
 		log.Fatalf("Unable to retrieve Sheets Client %v", err)
 	}
 
-	r, er := srvDrive.Files.List().PageSize(10).Fields("nextPageToken, files(id, name)").Do()
+	// просмотр файлов на гугл диске
+	// выделение у файла id, название (name) и тип файла (mimeType)
+	r, er := srvDrive.Files.List().PageSize(10).Fields("nextPageToken, files(id, name, mimeType)").Do()
 	if er != nil {
 		log.Fatalf("Не удаётся получить файлы с Google Drive: %v", err)
 	}
 
-	table := CreateTable()
-	resp, err := srv.Spreadsheets.Create(table).Context(ctx).Do()
-	if err != nil {
-		log.Fatal(err)
-	}
-	spreadsheetId = resp.SpreadsheetId
-	SendMessageToTelegram("Ссылка на таблицу:\n" + spreadsheetId)
+	Table(r, ctx)
 
-	if len(r.Files) > 0 {
-		for _, i := range r.Files {
-			if i.Name == "Бюджет" {
-				spreadsheetId = i.Id
-				break
-			}
-		}
-	} else {
-
-	}
 }
 
-func CreateTable() *sheets.Spreadsheet {
+// Table проверка есть ли на гугл диске пользователя таблица с учетом бюджета.
+// Если таблицы нет, то она создаётся
+// r - список файлов на гугл диске пользователя
+// ctx - ?????
+func Table(r *drive.FileList, ctx context.Context) {
+	// такое расширение у таблиц в гуггл диске
+	typeSpreadsheet := "application/vnd.google-apps.spreadsheet"
+	link := "https://docs.google.com/spreadsheets/d/"
+
+	countFile := 0
+	isTableNoExist := false
+
+	if len(r.Files) > 0 {
+		// поиск среди файлов пользователя электронной таблицы с именем "Бюджет"
+		for _, i := range r.Files {
+			if i.Name == "Бюджет" && i.MimeType == typeSpreadsheet {
+				spreadsheetId = i.Id
+				break
+			} else {
+				countFile++
+			}
+		} // for
+	} else {
+		isTableNoExist = true
+	}
+
+	// Если среди файлов таблица не найдена, значит надо её создать
+	if countFile == len(r.Files) {
+		isTableNoExist = true
+	}
+
+	// создание таблицы, если она отсутствует на диске пользователя
+	if isTableNoExist {
+		table := StructTableSheets()
+		resp, err := srv.Spreadsheets.Create(table).Context(ctx).Do()
+		if err != nil {
+			log.Fatal(err)
+		}
+		spreadsheetId = resp.SpreadsheetId
+	}
+	SendMessageToTelegram("Ссылка на таблицу:\n" + link + spreadsheetId)
+}
+
+// StructTableSheets создание структуры листов таблицы
+// Возвращает структуру листов таблицы (названия листов, их порядок)
+func StructTableSheets() *sheets.Spreadsheet {
 	file, _ := os.Open("table.json")
 	defer file.Close()
 
