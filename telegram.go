@@ -2,11 +2,15 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 
 	drive "google.golang.org/api/drive/v3"
+	sheets "google.golang.org/api/sheets/v4"
 	"gopkg.in/telegram-bot-api.v4"
 )
 
@@ -18,14 +22,6 @@ var (
 	isReadAuth bool
 	updates    tgbotapi.UpdatesChannel
 )
-
-//структура json
-type jsonStruct struct {
-	keyWord    string `json:"keyWord"`    //ключевое слово из сообщения
-	amount     string `json:"amount"`     //сумма, указанная в сообщении
-	targetName string `json:"targetName"` //имя цели, если ключевое слово-цель
-	date       string `json:"date"`       //дата, указанная в сообщении
-}
 
 // SendMessageToTelegram вывод сообщения в телеграмме от бота
 func SendMessageToTelegram(textMessage string) {
@@ -56,94 +52,242 @@ func initBot() {
 	if err != nil {
 		log.Panic(err)
 	}
+
+	bot.Debug = true
+
+	// _, err = bot.SetWebhook(tgbotapi.NewWebhookWithCert("https://www.google.com:8443/"+bot.Token, "cert.pem"))
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
 }
 
-func searchKey(sms string) {
-	var (
-		key     string
-		key_id  int
-		mas_sms []string
-		mas_key []string
-		tmp     []string
-	)
+// ParseMess парсинг сообщения от банка.
+// На вход сообщения от банка
+// на выходе данные в формате jsonStruct
+func ParseMess(message string) (data jsonStruct) {
 
-	key = "справка spravka зачисление zachislenie пополнение popolnenie поступление postuplenie списание Spisanie покупка Perevod Оплата Oplata Цель tsel Баланс balans Остаток Ostatok Выписка Vypiska Редектировать Redektirovat Изменить Izmenit Кошелек Koshelek Долг Dolg Создать Sozdat Выход vykhod"
-	//sms= "Schet *1096: postuplenie zarabotnoy plati 5605.25 RUB; 02.03.2018 05:36:31; Dostupno 5938.37 RUB. Detali v mobilnom banke: vtb.ru/app"
-	//sms= "VISA6679 23.02.18 04:38 списание 7р KOPILKA KARTS-VKLAD Баланс: 3973р"
-	//sms= "VISA6679 23.02.18 04:38 списание 7р KOPILKA KARTS-VKLAD Баланс: 3973р"
+	fmt.Println("В процедуру ParseMees пришло: " + message)
 
-	mas_sms = strings.Split(sms, " ") //переход от строки к массиву
-	mas_key = strings.Split(key, " ")
-	//fmt.Print(len(mas_key))
-	for i := 0; i < len(mas_sms); i++ {
-		for j := 0; j < len(mas_key); j++ {
-			//fmt.Println("mas_sms[i]=", mas_sms[i])
-			//fmt.Print("mas_key[ij=", mas_key[j])
-			if mas_sms[i] == mas_key[j] {
-				//fmt.Print("j=", j)
-				key_id = j
-				tmp = append(tmp, mas_sms[i])
-				if (len(tmp)) >= 2 {
-					//fmt.Printf("%q\n", "Некорректный запрос")
-					break
-				} else {
-					//fmt.Printf("%q\n", mas_sms[i])
-				}
-			}
+	regexpSeparator := " "
+	// тип карты
+	regexpCard := "((MIR|VISA|MAES|ECMC)-?\\d{4})"
+	// дата совершения операции
+	regexpDate := "((0[1-9]|[12][0-9]|3[01]).(0[1-9]|1[012]).(\\d{2}))"
+	// время совершения операции
+	regexpTime := "((0[0-9]|1[0-9]|2[0-3]]):([0-5][1-9]))"
+	// опреация
+	regexpKeyWord := "((списание|покупка|зачисление зарплаты|зачисление пенсии|зачисление|поступление|выдача наличных|выдача|возврат покупки))"
+	// сумма операции
+	regexpSum := "((\\d+(.\\d{2})?)+р)"
+	//
+	regexpW := "(([a-zA-Za-яА-Я0-9\"\\s-])*)"
+	// остаток
+	regexpBalik := "(Баланс:)"
 
+	var regp []string
+	regp = append(regp, regexpCard)
+	regp = append(regp, regexpDate)
+	regp = append(regp, regexpTime)
+	regp = append(regp, regexpKeyWord)
+	regp = append(regp, regexpSum)
+	regp = append(regp, regexpW)
+	regp = append(regp, regexpBalik)
+	regp = append(regp, regexpSum) // остаток
+
+	var text string
+	for i, reg := range regp {
+		if i != len(regp)-1 {
+			text += reg + regexpSeparator
+		} else {
+			text += reg
 		}
 	}
-	//fmt.Print("jyfuj  ", key_id)
-	switch key_id {
-	case 2, 3, 4, 5, 6, 7:
-		structSMS(mas_sms)
-		break
+
+	re := regexp.MustCompile(text)
+
+	fmt.Println(text)
+
+	// выделение ключевых слоов
+	if re.MatchString(message) {
+		/*
+			В массиве rez содержатся данные:
+			0 - полностью сообщение
+			1 - тип карты с указанием 4-х последних цифр карты
+			2 - тип карты
+			3 - дата совершения операции в формате dd.mm.yy
+			4 - день совершения операции
+			5 - месяц совершения операции
+			6 - 2-е последние цифры года совершения операции
+			7 - время совершения операции в формате hh:mm
+			8 - час совершения операции
+			9 - минуты совершения операции
+			10 - операция
+			11 - операция
+			12 - сумма операции с указанием валюты
+			13 - целая часть суммы
+			14 - точка + дробная часть суммы
+			15 - магазин/?? где совершили покупку
+			16 - последняя буква магзина где совершили покупку
+			17 - cлово "Баланс:"
+			18 - остаток на карте с указанием валюты
+			19 - целая часть остатка на карте
+			20 - точка + дробная часть остатка на карте
+		*/
+		rez := re.FindStringSubmatch(message)
+
+		data.keyWord = rez[10]
+		data.amount = rez[13]
+		data.targetName = rez[15]
+		data.date = rez[3]
 	}
+	return data
+
 }
 
-func structSMS(mas_sms []string) {
-	var (
-		mas_result []string
-	)
-	//fmt.Print("jsdssyfuj")
-	if strings.Contains(mas_sms[0], "VISA") {
+// AddCosts добавляет данные из data в страницу учета расходов
+func AddCosts(data jsonStruct) {
 
-		data := mas_sms[1]
-		time := mas_sms[2]
-		sum := strings.Replace(mas_sms[4], "р", "", -1)
-		tipe := "undefiend"
-		mas_result = append(mas_result, tipe, data, time, sum)
-	} else if strings.Contains(mas_sms[0], "Schet") {
-		tipe := mas_sms[3]
-		data := mas_sms[7]
-		time := mas_sms[8]
-		sum := mas_sms[5]
-		mas_result = append(mas_result, tipe, data, time, sum)
-	} else if strings.Contains(mas_sms[0], "MIR") {
-		tipe := mas_sms[3]
-		data := mas_sms[1]
+	// выбор столбца
+	// выделение месяца
+	mas_date := strings.Split(data.date, ".")
+	// выделение месяца
+	month := mas_date[1]
 
-		time := mas_sms[2]
-		sum := strings.Replace(mas_sms[4], "р", "", -1)
-		mas_result = append(mas_result, tipe, data, time, sum)
+	var col_cost string
+	// выбор столбца для записи
+	switch month {
+	case "01":
+		col_cost = "B"
+	case "02":
+		col_cost = "C"
+	case "03":
+		col_cost = "D"
+	case "04":
+		col_cost = "E"
+	case "05":
+		col_cost = "F"
+	case "06":
+		col_cost = "G"
+	case "07":
+		col_cost = "H"
+	case "08":
+		col_cost = "I"
+	case "09":
+		col_cost = "J"
+	case "10":
+		col_cost = "K"
+	case "11":
+		col_cost = "L"
+	case "12":
+		col_cost = "M"
 	}
 
-	//fmt.Println("", mas_result)
-	//return
-	//convertMassToJson(mas_result)
+	//выбор строки
+	var row_cost int
+	switch data.keyWord {
+	case "покупка":
+		row_cost = 2
+	case "списание":
+		row_cost = 3
+	case "оплата":
+		row_cost = 4
+	case "перевод":
+		row_cost = 5
+	}
+
+	//выделение ячейки
+	range_cost := "Costs!" + col_cost + string(row_cost)
+	fmt.Println("Rezultat costs = " + range_cost)
+
+	//считать значение выделенной ячейки
+	// resp, err := srvSpreadsheets.Values.Get(spreadsheetId, range_cost).Context(ctx).Do()
+	// summ_cost = resp + summ
 }
 
-/*
-func convertMassToJson(array []string) {
-	right := &jsonStruct{
-		keyWord:    array[0],
-		amount:     array[1],
-		targetName: array[2],
-		date:       array[3],
+// AddAim добавляет данные из data в страницу учета доходов
+func AddAim(data jsonStruct) {
+
+	// выбор столбца
+	// выделение месяца
+	mas_date := strings.Split(data.date, ".")
+	month := mas_date[1]
+
+	var col_aim string
+	switch month {
+	case "01":
+		col_aim = "B"
+	case "02":
+		col_aim = "C"
+	case "03":
+		col_aim = "D"
+	case "04":
+		col_aim = "E"
+	case "05":
+		col_aim = "F"
+	case "06":
+		col_aim = "G"
+	case "07":
+		col_aim = "H"
+	case "08":
+		col_aim = "I"
+	case "09":
+		col_aim = "J"
+	case "10":
+		col_aim = "K"
+	case "11":
+		col_aim = "L"
+	case "12":
+		col_aim = "M"
 	}
-	fmt.Println("", right)
+
+	//выбор строки
+	// определение типа дохода
+	var row_aim int
+	switch data.keyWord {
+	case "зарплата":
+		row_aim = 2
+	case "пенсия":
+		row_aim = 3
+	case "зачисление":
+		row_aim = 4
+	case "аванс":
+		row_aim = 5
+	}
+
+	//выделение ячейки
+	range_aim := fmt.Sprintf("Доходы!%s%d", col_aim, row_aim)
+
+	majorDimension := "COLUMNS"
+
+	//считать значение выделенной ячейки
+	resp, err := srv.Spreadsheets.Values.Get(spreadsheetId, range_aim).MajorDimension(majorDimension).Context(ctx).Do()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var sum, summ float64
+	str := fmt.Sprintf("%v", resp.Values[0])
+	sum, _ = strconv.ParseFloat(str, 64)
+	summ, _ = strconv.ParseFloat(data.amount, 64)
+	summ_aim := sum + summ
+
+	d, err := resp.MarshalJSON()
+	if err != nil {
+		log.Fatalf("JSON marshaling failed: %s", err)
+	}
+	fmt.Println(d[70], d[71], d[72])
+
+	var f [][]interface{}
+	f = summ_aim
+	rb := &sheets.ValueRange{Values: f}
+
+	/*	resp2, err := srv.Spreadsheets.Values.Update(spreadsheetId, range_aim, rb).Context(ctx).Do()
+		if err != nil {
+			log.Fatal(err)
+		}
+	*/
 }
-*/
+
 func main() {
 
 	isReadAuth = false
@@ -178,25 +322,41 @@ func main() {
 
 		// обработка команд
 		// P.S. команда начинается с "/"
-		switch update.Message.Command() {
-		case "auth": // авторизация пользователя
-			ChatID = update.Message.Chat.ID
-			UzverID = update.Message.From.ID
-			go initGoogle()
-			isReadAuth = true
-			break
-		case "start":
-		case "file":
-		}
+		if update.Message.Command() != "" {
+			switch update.Message.Command() {
+			case "auth": // авторизация пользователя
+				ChatID = update.Message.Chat.ID
+				UzverID = update.Message.From.ID
+				go initGoogle()
+				isReadAuth = true
+				break
+			case "file":
+			}
 
-		var sms string
-		sms = "VISA6679 23.02.18 04:38 зачисление 3000р Баланс: 4254.87р"
-		searchKey(sms)
-		// обработка сообщений
+		} else {
+			// считывание сообщений
+			sms := update.Message.Text
 
-		// парсинг ключевых слов
+			fmt.Println("Было введено: " + sms)
 
-		// вызов определенных функций
+			// парсинг ключевых слов
+			data := ParseMess(sms)
 
-	}
+			fmt.Print("Было поллучено из сообщения: ")
+			fmt.Println(data)
+
+			// вызов определенных функций
+			if data.keyWord == " " {
+				SendMessageToTelegram("Ошибка в сообщении")
+			} else {
+				switch data.keyWord {
+				case "зачисление", "зачисление зарплаты", "пополнение":
+					AddAim(data)
+				case "списание", "снятие":
+					AddCosts(data)
+				}
+			}
+		} // else
+
+	} // for update := range updates
 }

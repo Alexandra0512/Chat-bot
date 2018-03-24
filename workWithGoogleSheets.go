@@ -6,7 +6,7 @@ import (
 	"strconv"
 )
 
-// Результат труда Фёдоровой Александры
+// Напрасный Результат труда Фёдоровой Александры
 // getKeywordID получение ID ключевого слова из таблицы.
 // На вход поступает ключевое слова
 // Возвращает id ключевого слова или 0 - если ID не найдено
@@ -40,7 +40,7 @@ func getKeywordID(keyword string) (keywordID int) {
 	return 0
 }
 
-// Результат труда Фёдоровой Александры
+// Напрасный Результат труда Фёдоровой Александры
 // getAnswerID Возвращает ID ответа по ID ключевого слова*/
 func getAnswerID(keywordID int) (answerID int) {
 	//обращаемся к таблице TableKeyAnsw
@@ -76,7 +76,7 @@ func getAnswerID(keywordID int) (answerID int) {
 	return 5
 }
 
-// Результат труда Фёдоровой Александры
+// Напрасный Результат труда Фёдоровой Александры
 /*Ищет ответ по Id ответа*/
 func getAnswerByID(answerID int) (answer string) {
 	//обращаемся к таблице TableAnswer

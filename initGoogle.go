@@ -22,11 +22,12 @@ var (
 	AuthCode      chan string = make(chan string)
 	spreadsheetId string
 	srv           *sheets.Service
+	ctx           context.Context
 )
 
 // initGoogle Инициализация связи с Google Drive и Google Sheets
 func initGoogle() {
-	ctx := context.Background()
+	ctx = context.Background()
 
 	// чтение файлов настроек от гугл
 	b, err := ioutil.ReadFile("config_google.json")
@@ -65,7 +66,6 @@ func initGoogle() {
 	}
 
 	Table(r, ctx)
-
 }
 
 // Table проверка есть ли на гугл диске пользователя таблица с учетом бюджета.
@@ -108,7 +108,10 @@ func Table(r *drive.FileList, ctx context.Context) {
 		}
 		spreadsheetId = resp.SpreadsheetId
 	}
+
 	SendMessageToTelegram("Ссылка на таблицу:\n" + link + spreadsheetId)
+	isReadAuth = false
+
 }
 
 // StructTableSheets создание структуры листов таблицы
